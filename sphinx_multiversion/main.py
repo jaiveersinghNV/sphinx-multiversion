@@ -55,6 +55,12 @@ def load_sphinx_config_worker(q, confpath, confoverrides, add_defaults):
                 str,
             )
             current_config.add(
+                "smv_latest_version",
+                sphinx.DEFAULT_LATEST_VERSION,
+                "html",
+                str
+            )
+            current_config.add(
                 "smv_released_pattern",
                 sphinx.DEFAULT_RELEASED_PATTERN,
                 "html",
@@ -290,6 +296,11 @@ def main(argv=None):
                 "confdir": confpath,
                 "docnames": list(project.discover()),
             }
+
+            if gitref.name == config.smv_latest_version:
+                # Duplicate latest reference and save to root
+                metadata["latest"] = metadata[gitref.name].copy()
+                metadata["latest"]["outputdir"] = os.path.abspath(args.outputdir)
 
         if args.dump_metadata:
             print(json.dumps(metadata, indent=2))
