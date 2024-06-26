@@ -300,6 +300,7 @@ def main(argv=None):
             if gitref.name == config.smv_latest_version:
                 # Duplicate latest reference and save to root
                 metadata["latest"] = metadata[gitref.name].copy()
+                metadata["latest"]["name"] = "latest"
                 metadata["latest"]["outputdir"] = os.path.abspath(args.outputdir)
 
         if args.dump_metadata:
