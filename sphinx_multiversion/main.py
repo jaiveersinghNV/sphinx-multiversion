@@ -162,6 +162,11 @@ def main(argv=None):
         help="override a setting in configuration file",
     )
     parser.add_argument(
+        "-w",
+        dest="warningfile",
+        help="Write warnings (and errors) to the given file, in addition to standard error."
+    )
+    parser.add_argument(
         "--dump-metadata",
         action="store_true",
         help="dump generated metadata and exit",
@@ -336,6 +341,8 @@ def main(argv=None):
                     "smv_current_version={}".format(version_name),
                     "-c",
                     confdir_absolute,
+                    "-w",
+                    os.path.join(tmp, "smv-err.log"),
                     data["sourcedir"],
                     data["outputdir"],
                     *args.filenames,
@@ -362,5 +369,9 @@ def main(argv=None):
                 }
             )
             subprocess.check_call(cmd, cwd=current_cwd, env=env)
+            if args.warningfile:
+                with open(args.warningfile, mode="a") as wf:
+                    with open(os.path.join(tmp, "smv-err.log"), mode="r") as err_log:
+                        wf.write(err_log.read())
 
     return 0
