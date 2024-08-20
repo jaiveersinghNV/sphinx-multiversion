@@ -83,11 +83,11 @@ def get_refs(
                 )
                 continue
         elif ref.source == "heads":
-            if branch_whitelist is None or not re.match(
-                branch_whitelist, ref.name
-            ):
+            if branch_whitelist is None or not any([re.match(
+                branch, ref.name
+            ) for branch in branch_whitelist]):
                 logger.debug(
-                    "Skipping '%s' because branch '%s' doesn't match the "
+                    "Skipping '%s' because branch '%s' doesn't match any "
                     "whitelist pattern",
                     ref.refname,
                     ref.name,

@@ -44,9 +44,9 @@ def load_sphinx_config_worker(q, confpath, confoverrides, add_defaults):
             )
             current_config.add(
                 "smv_branch_whitelist",
-                sphinx.DEFAULT_TAG_WHITELIST,
+                sphinx.DEFAULT_BRANCH_WHITELIST,
                 "html",
-                str,
+                list,
             )
             current_config.add(
                 "smv_remote_whitelist",
