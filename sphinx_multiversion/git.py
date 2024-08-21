@@ -72,6 +72,7 @@ def get_all_refs(gitroot):
 def get_refs(
     gitroot, tag_whitelist, branch_whitelist, remote_whitelist, files=()
 ):
+    print(f"Whitelist: {branch_whitelist}")
     for ref in get_all_refs(gitroot):
         print(f"Considering ref: {ref}")
         if ref.source == "tags":
