@@ -55,6 +55,12 @@ def load_sphinx_config_worker(q, confpath, confoverrides, add_defaults):
                 str,
             )
             current_config.add(
+                "smv_latest_version",
+                sphinx.DEFAULT_LATEST_VERSION,
+                "html",
+                str
+            )
+            current_config.add(
                 "smv_released_pattern",
                 sphinx.DEFAULT_RELEASED_PATTERN,
                 "html",
@@ -154,6 +160,11 @@ def main(argv=None):
         dest="define",
         default=[],
         help="override a setting in configuration file",
+    )
+    parser.add_argument(
+        "-w",
+        dest="warningfile",
+        help="Write warnings (and errors) to the given file, in addition to standard error."
     )
     parser.add_argument(
         "--dump-metadata",
@@ -291,6 +302,12 @@ def main(argv=None):
                 "docnames": list(project.discover()),
             }
 
+            if gitref.name == config.smv_latest_version:
+                # Duplicate latest reference and save to root
+                metadata["latest"] = metadata[gitref.name].copy()
+                metadata["latest"]["name"] = "latest"
+                metadata["latest"]["outputdir"] = os.path.abspath(args.outputdir)
+
         if args.dump_metadata:
             print(json.dumps(metadata, indent=2))
             return 0
@@ -324,6 +341,8 @@ def main(argv=None):
                     "smv_current_version={}".format(version_name),
                     "-c",
                     confdir_absolute,
+                    "-w",
+                    os.path.join(tmp, "smv-err.log"),
                     data["sourcedir"],
                     data["outputdir"],
                     *args.filenames,
@@ -350,5 +369,11 @@ def main(argv=None):
                 }
             )
             subprocess.check_call(cmd, cwd=current_cwd, env=env)
+            
+            if args.warningfile:
+                with open(args.warningfile, mode="a") as wf:
+                    with open(os.path.join(tmp, "smv-err.log"), mode="r") as err_log:
+                        wf.write(err_log.read())
+                        print(err_log.read)
 
     return 0
