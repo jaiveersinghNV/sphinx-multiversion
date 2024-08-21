@@ -74,7 +74,7 @@ def get_refs(
 ):
     print(f"Whitelist: {branch_whitelist}")
     for ref in get_all_refs(gitroot):
-        print(f"Considering ref: {ref}")
+        # print(f"Considering ref: {ref}")
         if ref.source == "tags":
             if tag_whitelist is None or not re.match(tag_whitelist, ref.name):
                 logger.debug(
