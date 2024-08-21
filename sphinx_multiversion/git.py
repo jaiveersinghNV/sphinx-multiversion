@@ -72,9 +72,7 @@ def get_all_refs(gitroot):
 def get_refs(
     gitroot, tag_whitelist, branch_whitelist, remote_whitelist, files=()
 ):
-    print(f"Whitelist: {branch_whitelist}")
     for ref in get_all_refs(gitroot):
-        # print(f"Considering ref: {ref}")
         if ref.source == "tags":
             if tag_whitelist is None or not re.match(tag_whitelist, ref.name):
                 logger.debug(
@@ -85,11 +83,11 @@ def get_refs(
                 )
                 continue
         elif ref.source == "heads":
-            if branch_whitelist is None or not any([re.match(
-                branch, ref.name
-            ) for branch in branch_whitelist]):
+            if branch_whitelist is None or not re.match(
+                branch_whitelist, ref.name
+            ):
                 logger.debug(
-                    "Skipping '%s' because branch '%s' doesn't match any "
+                    "Skipping '%s' because branch '%s' doesn't match the "
                     "whitelist pattern",
                     ref.refname,
                     ref.name,
@@ -135,7 +133,6 @@ def get_refs(
             )
             continue
 
-        print(f"Yielding ref: {ref}")
         yield ref
 
 
