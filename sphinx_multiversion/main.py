@@ -236,7 +236,6 @@ def main(argv=None):
         metadata = {}
         outputdirs = set()
         for gitref in gitrefs:
-            print("Processing", gitref.refname)
             # Clone Git repo
             repopath = os.path.join(tmp, gitref.commit)
             try:
