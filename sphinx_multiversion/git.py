@@ -73,6 +73,7 @@ def get_refs(
     gitroot, tag_whitelist, branch_whitelist, remote_whitelist, files=()
 ):
     for ref in get_all_refs(gitroot):
+        print(f"Considering ref: {ref}")
         if ref.source == "tags":
             if tag_whitelist is None or not re.match(tag_whitelist, ref.name):
                 logger.debug(
@@ -133,6 +134,7 @@ def get_refs(
             )
             continue
 
+        print(f"Yielding ref: {ref}")
         yield ref
 
 
