@@ -380,6 +380,5 @@ def main(argv=None):
                 with open(args.warningfile, mode="a") as wf:
                     with open(os.path.join(tmp, "smv-err.log"), mode="r") as err_log:
                         wf.write(err_log.read())
-                        print(err_log.read)
 
     return 0
