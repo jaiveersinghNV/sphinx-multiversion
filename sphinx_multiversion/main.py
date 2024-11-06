@@ -171,12 +171,6 @@ def main(argv=None):
         action="store_true",
         help="dump generated metadata and exit",
     )
-    parser.add_argument(
-        "--additional-context",
-        nargs="*",
-        default=[],
-        help="additional paths-from-gitroot that must be copied to build docs",
-    )
     args, argv = parser.parse_known_args(argv)
     if args.noconfig:
         return 1
@@ -244,17 +238,15 @@ def main(argv=None):
         for gitref in gitrefs:
             # Clone Git repo
             repopath = os.path.join(tmp, gitref.commit)
-            for dir in (cwd_relative, *args.additional_context):
-                try:
-                    git.copy_tree(str(gitroot), gitroot.as_uri(), repopath, gitref, dir)
-                except (OSError, subprocess.CalledProcessError):
-                    logger.error(
-                        "Failed to copy git tree %s for %s to %s",
-                        dir,
-                        gitref.refname,
-                        repopath,
-                    )
-                    continue
+            try:
+                git.copy_tree(str(gitroot), gitroot.as_uri(), repopath, gitref)
+            except (OSError, subprocess.CalledProcessError):
+                logger.error(
+                    "Failed to copy git tree for %s to %s",
+                    gitref.refname,
+                    repopath,
+                )
+                continue
 
             # Find config
             confpath = os.path.join(repopath, confdir)
@@ -347,6 +339,8 @@ def main(argv=None):
                     *defines,
                     "-D",
                     "smv_current_version={}".format(version_name),
+                    "-c",
+                    confdir_absolute,
                     "-w",
                     os.path.join(tmp, "smv-err.log"),
                     data["sourcedir"],
@@ -375,7 +369,7 @@ def main(argv=None):
                 }
             )
             subprocess.check_call(cmd, cwd=current_cwd, env=env)
-
+            
             if args.warningfile:
                 with open(args.warningfile, mode="a") as wf:
                     with open(os.path.join(tmp, "smv-err.log"), mode="r") as err_log:
