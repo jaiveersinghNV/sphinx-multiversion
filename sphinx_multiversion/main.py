@@ -2,6 +2,7 @@
 import itertools
 import argparse
 import multiprocessing
+import concurrent.futures
 import contextlib
 import json
 import logging
@@ -12,6 +13,7 @@ import string
 import subprocess
 import sys
 import tempfile
+import venv
 
 from sphinx import config as sphinx_config
 from sphinx import project as sphinx_project
@@ -126,6 +128,136 @@ def get_python_flags():
             yield from ("-X", "{}={}".format(option, value))
 
 
+def setup_venv(venv_path, requirements_file):
+    """
+    Create a virtual environment and optionally install requirements.
+
+    Args:
+        venv_path: Path where the virtual environment should be created
+        requirements_file: Path to requirements.txt to install
+
+    Returns:
+        Path to the Python executable in the virtual environment
+    """
+    # Create virtual environment
+    venv.create(venv_path, with_pip=True, clear=True)
+    venv_python = os.path.join(venv_path, "bin", "python")
+
+    # Install requirements
+    subprocess.check_call(
+        [venv_python, "-m", "pip", "install", "-q", "-r", requirements_file],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+
+    return venv_python
+
+
+def build_version(version_name, data, tmp, argv, args, cwd_relative):
+    """
+    Build documentation for a single version.
+
+    Args:
+        version_name: Name of the version to build
+        data: Metadata dictionary for this version
+        tmp: Temporary directory path
+        argv: Base argv for sphinx-build
+        args: Parsed command-line arguments
+        cwd_relative: Relative path from git root to current working directory
+
+    Returns:
+        Tuple of (version_name, error_log_path, success)
+    """
+    # Configure version-specific logger
+    logger = logging.getLogger(__name__)
+    # Create a custom handler with version prefix
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(
+        logging.Formatter(
+            '[%(version)s] %(levelname)s: %(message)s'
+        )
+    )
+    logger.handlers = [handler]
+    logger.setLevel(logging.DEBUG)
+
+    # Create adapter to automatically add version to all log messages
+    logger = logging.LoggerAdapter(
+        logger, {'version': version_name}
+    )
+
+    # Setup virtual environment for this version
+    venv_path = os.path.join(tmp, "venv_{}".format(version_name))
+    requirements_file = os.path.join(
+        data["sourcedir"], "../requirements.txt"
+    )
+
+    logger.info(
+        "Setting up environment for version: %s", version_name
+    )
+    try:
+        venv_python = setup_venv(venv_path, requirements_file)
+    except subprocess.CalledProcessError:
+        logger.error(
+            "Failed to setup virtual environment for %s, skipping",
+            version_name
+        )
+        return (version_name, None, False)
+
+    os.makedirs(data["outputdir"], exist_ok=True)
+
+    defines = itertools.chain(
+        *(
+            ("-D", string.Template(d).safe_substitute(data))
+            for d in args.define
+        )
+    )
+
+    # Use unique error log for this version
+    error_log_path = os.path.join(tmp, "smv-err-{}.log".format(version_name))
+
+    current_argv = argv.copy()
+    current_argv.extend(
+        [
+            *defines,
+            "-D",
+            "smv_current_version={}".format(version_name),
+            "-w",
+            error_log_path,
+            data["sourcedir"],
+            data["outputdir"],
+            *args.filenames,
+        ]
+    )
+    logger.debug("Running sphinx-build with args: %r", current_argv)
+    cmd = (
+        venv_python,
+        *get_python_flags(),
+        "-m",
+        "sphinx",
+        *current_argv,
+    )
+    current_cwd = os.path.join(data["basedir"], cwd_relative)
+    env = os.environ.copy()
+    env.update(
+        {
+            "SPHINX_MULTIVERSION_NAME": data["name"],
+            "SPHINX_MULTIVERSION_VERSION": data["version"],
+            "SPHINX_MULTIVERSION_RELEASE": data["release"],
+            "SPHINX_MULTIVERSION_SOURCEDIR": data["sourcedir"],
+            "SPHINX_MULTIVERSION_OUTPUTDIR": data["outputdir"],
+            "SPHINX_MULTIVERSION_CONFDIR": data["confdir"],
+        }
+    )
+
+    try:
+        subprocess.check_call(cmd, cwd=current_cwd, env=env)
+        logger.info("Successfully built version: %s", version_name)
+        return (version_name, error_log_path, True)
+    except subprocess.CalledProcessError as e:
+        logger.error("Failed to build version %s: %s", version_name, e)
+        return (version_name, error_log_path, False)
+
+
 def main(argv=None):
     if not argv:
         argv = sys.argv[1:]
@@ -164,7 +296,10 @@ def main(argv=None):
     parser.add_argument(
         "-w",
         dest="warningfile",
-        help="Write warnings (and errors) to the given file, in addition to standard error."
+        help=(
+            "Write warnings (and errors) to the given file, "
+            "in addition to standard error."
+        )
     )
     parser.add_argument(
         "--dump-metadata",
@@ -180,6 +315,13 @@ def main(argv=None):
     args, argv = parser.parse_known_args(argv)
     if args.noconfig:
         return 1
+
+    # Configure logging to output to stdout/stderr
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(levelname)s: %(message)s',
+        stream=sys.stdout,
+    )
 
     logger = logging.getLogger(__name__)
 
@@ -246,7 +388,8 @@ def main(argv=None):
             repopath = os.path.join(tmp, gitref.commit)
             for dir in (cwd_relative, *args.additional_context):
                 try:
-                    git.copy_tree(str(gitroot), gitroot.as_uri(), repopath, gitref, dir)
+                    git.copy_tree(str(gitroot), gitroot.as_uri(),
+                                  repopath, gitref, dir)
                 except (OSError, subprocess.CalledProcessError):
                     logger.error(
                         "Failed to copy git tree %s for %s to %s",
@@ -314,7 +457,9 @@ def main(argv=None):
                 # Duplicate latest reference and save to root
                 metadata["latest"] = metadata[gitref.name].copy()
                 metadata["latest"]["name"] = "latest"
-                metadata["latest"]["outputdir"] = os.path.abspath(args.outputdir)
+                metadata["latest"]["outputdir"] = os.path.abspath(
+                    args.outputdir
+                )
 
         if args.dump_metadata:
             print(json.dumps(metadata, indent=2))
@@ -329,56 +474,72 @@ def main(argv=None):
         with open(metadata_path, mode="w") as fp:
             json.dump(metadata, fp, indent=2)
 
-        # Run Sphinx
+        # Run Sphinx builds in parallel
         argv.extend(["-D", "smv_metadata_path={}".format(metadata_path)])
-        for version_name, data in metadata.items():
-            os.makedirs(data["outputdir"], exist_ok=True)
 
-            defines = itertools.chain(
-                *(
-                    ("-D", string.Template(d).safe_substitute(data))
-                    for d in args.define
-                )
-            )
+        # Determine number of parallel workers
+        max_workers = min(len(metadata), os.cpu_count() or 1)
+        logger.info(
+            "Building %d versions in parallel with %d workers",
+            len(metadata), max_workers
+        )
 
-            current_argv = argv.copy()
-            current_argv.extend(
-                [
-                    *defines,
-                    "-D",
-                    "smv_current_version={}".format(version_name),
-                    "-w",
-                    os.path.join(tmp, "smv-err.log"),
-                    data["sourcedir"],
-                    data["outputdir"],
-                    *args.filenames,
-                ]
-            )
-            logger.debug("Running sphinx-build with args: %r", current_argv)
-            cmd = (
-                sys.executable,
-                *get_python_flags(),
-                "-m",
-                "sphinx",
-                *current_argv,
-            )
-            current_cwd = os.path.join(data["basedir"], cwd_relative)
-            env = os.environ.copy()
-            env.update(
-                {
-                    "SPHINX_MULTIVERSION_NAME": data["name"],
-                    "SPHINX_MULTIVERSION_VERSION": data["version"],
-                    "SPHINX_MULTIVERSION_RELEASE": data["release"],
-                    "SPHINX_MULTIVERSION_SOURCEDIR": data["sourcedir"],
-                    "SPHINX_MULTIVERSION_OUTPUTDIR": data["outputdir"],
-                    "SPHINX_MULTIVERSION_CONFDIR": data["confdir"],
-                }
-            )
-            subprocess.check_call(cmd, cwd=current_cwd, env=env)
+        # Build all versions in parallel
+        build_results = []
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=max_workers
+        ) as executor:
+            # Submit all build jobs
+            futures = {
+                executor.submit(
+                    build_version,
+                    version_name,
+                    data,
+                    tmp,
+                    argv,
+                    args,
+                    cwd_relative
+                ): version_name
+                for version_name, data in metadata.items()
+            }
 
-            if args.warningfile:
-                with open(args.warningfile, mode="a") as wf:
-                    with open(os.path.join(tmp, "smv-err.log"), mode="r") as err_log:
-                        wf.write(err_log.read())
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(futures):
+                version_name = futures[future]
+                try:
+                    result = future.result()
+                    build_results.append(result)
+                except Exception as exc:
+                    logger.error(
+                        "Version %s generated an exception: %s",
+                        version_name, exc
+                    )
+                    build_results.append((version_name, None, False))
+
+        # Aggregate all error logs into warningfile if requested
+        if args.warningfile:
+            logger.info("Aggregating error logs to %s", args.warningfile)
+            with open(args.warningfile, mode="w") as wf:
+                for version_name, error_log_path, success in build_results:
+                    if error_log_path and os.path.exists(error_log_path):
+                        wf.write(
+                            "=" * 70 + "\n"
+                        )
+                        wf.write(
+                            "Version: {}\n".format(version_name)
+                        )
+                        wf.write(
+                            "=" * 70 + "\n"
+                        )
+                        with open(error_log_path, mode="r") as err_log:
+                            wf.write(err_log.read())
+                        wf.write("\n")
+
+        # Report final status
+        successful = sum(1 for _, _, success in build_results if success)
+        logger.info(
+            "Build complete: %d/%d versions successful",
+            successful, len(build_results)
+        )
 
     return 0
