@@ -522,18 +522,10 @@ def main(argv=None):
             with open(args.warningfile, mode="w") as wf:
                 for version_name, error_log_path, success in build_results:
                     if error_log_path and os.path.exists(error_log_path):
-                        wf.write(
-                            "=" * 70 + "\n"
-                        )
-                        wf.write(
-                            "Version: {}\n".format(version_name)
-                        )
-                        wf.write(
-                            "=" * 70 + "\n"
-                        )
                         with open(error_log_path, mode="r") as err_log:
-                            wf.write(err_log.read())
-                        wf.write("\n")
+                            content = err_log.read()
+                            for line in content.splitlines(keepends=True):
+                                wf.write(f"[{version_name}] {line}")
 
         # Report final status
         successful = sum(1 for _, _, success in build_results if success)
